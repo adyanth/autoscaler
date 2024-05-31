@@ -263,18 +263,13 @@ func (n *NodeGroupManager) JoinIpToK8s(ip netip.Addr) (err error) {
 }
 
 type ProxmoxCloudProvider struct {
-	config *ProxmoxManager
+	manager         *ProxmoxManager
+	resourceLimiter *cloudprovider.ResourceLimiter
 }
 
-func newProxmoxCloudProvider(config *ProxmoxManager) *ProxmoxCloudProvider {
+func newProxmoxCloudProvider(manager *ProxmoxManager, rl *cloudprovider.ResourceLimiter) *ProxmoxCloudProvider {
 	return &ProxmoxCloudProvider{
-		config: config,
+		manager:         manager,
+		resourceLimiter: rl,
 	}
-}
-
-// cloudProvider.CloudProvider interface implementation on ProxmoxCloudProvider
-
-// Name returns name of the cloud provider.
-func (p *ProxmoxCloudProvider) Name() string {
-	return cloudprovider.ProxmoxProviderName
 }
