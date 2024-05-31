@@ -90,6 +90,8 @@ const (
 	CivoProviderName = "civo"
 	// RancherProviderName gets the provider name of rancher
 	RancherProviderName = "rancher"
+	// ProxmoxProviderName gets the provider name of proxmox
+	ProxmoxProviderName = "proxmox"
 )
 
 // GpuConfig contains the label, type and the resource name for a GPU.

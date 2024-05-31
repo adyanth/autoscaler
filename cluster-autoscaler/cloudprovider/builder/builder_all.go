@@ -153,6 +153,8 @@ func buildCloudProvider(opts config.AutoscalingOptions,
 		return rancher.BuildRancher(opts, do, rl)
 	case cloudprovider.VolcengineProviderName:
 		return volcengine.BuildVolcengine(opts, do, rl)
+	case cloudprovider.ProxmoxProviderName:
+		return proxmox.BuildProxmoxEngine(opts, do, rl)
 	}
 	return nil
 }
