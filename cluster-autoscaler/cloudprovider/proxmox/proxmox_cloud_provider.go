@@ -17,10 +17,30 @@ limitations under the License.
 package proxmox
 
 import (
+	"io"
+	"os"
+
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
+	"k8s.io/klog/v2"
 )
 
 func BuildProxmoxEngine(opts config.AutoscalingOptions, do cloudprovider.NodeGroupDiscoveryOptions, rl *cloudprovider.ResourceLimiter) cloudprovider.CloudProvider {
-	return nil
+
+	var configFile io.ReadCloser
+	if opts.CloudConfig != "" {
+		var err error
+		configFile, err = os.Open(opts.CloudConfig)
+		if err != nil {
+			klog.Fatalf("Couldn't open cloud provider configuration %s: %#v", opts.CloudConfig, err)
+		}
+		defer configFile.Close()
+	}
+
+	manager, err := newProxmoxManager(configFile)
+	if err != nil {
+		klog.Fatalf("Failed to create Proxmox config: %v", err)
+	}
+
+	return newProxmoxCloudProvider(manager, rl)
 }
