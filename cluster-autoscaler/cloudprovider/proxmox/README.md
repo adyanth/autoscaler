@@ -34,6 +34,7 @@ The API token needs the following permissions with propagate enabled:
 |:------------------:|:----------------:|:-------------------------------:|
 | /                  | PVEAuditor       | Reading node and template info  |
 | /                  | PVETemplateUser  | Using the template              |
+| /pool/{poolName}   | PVEPoolUser      | List all pools                  |
 | /pool/{poolName}   | PVEVMAdmin       | Create/Delete containers        |
 | /storage/local-lvm | PVEDatastoreUser | Allocate storage for containers |
 | /sdn/zones         | PVESDNUser       | Attach to network               |
