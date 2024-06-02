@@ -30,8 +30,16 @@ func (p *ProxmoxCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 // should not be processed by cluster autoscaler, or non-nil error if such
 // occurred. Must be implemented.
 func (p *ProxmoxCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
+	refId, ok := node.Labels[RefIdLabel]
+
+	// Not managed by autoscaler
+	if !ok {
+		return nil, nil
+	}
+
+	// Find node group
 	for _, ng := range p.manager.NodeGroupManagers {
-		if node.Labels[RefIdLabel] == fmt.Sprint(ng.NodeConfig.RefCtrId) {
+		if refId == fmt.Sprint(ng.NodeConfig.RefCtrId) {
 			return ng, nil
 		}
 	}
