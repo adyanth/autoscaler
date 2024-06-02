@@ -16,14 +16,16 @@ import (
 	"github.com/luthermonson/go-proxmox"
 	pm "github.com/luthermonson/go-proxmox"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
+	"k8s.io/autoscaler/cluster-autoscaler/config"
 )
 
 type NodeConfig struct {
-	RefCtrId         int
-	TargetPool       string
-	WorkerNamePrefix string
-	MinSize          int
-	MaxSize          int
+	RefCtrId           int
+	TargetPool         string
+	WorkerNamePrefix   string
+	MinSize            int
+	MaxSize            int
+	AutoScalingOptions config.NodeGroupAutoscalingOptions
 }
 
 type K3sConfig struct {
@@ -50,11 +52,10 @@ type NodeGroupManager struct {
 	K3sConfig      *K3sConfig
 	TimeoutSeconds int
 
-	node         *pm.Node
-	refCtr       *pm.Container
-	currentSize  int
-	targetSize   int
-	targetPoolId int
+	node        *pm.Node
+	refCtr      *pm.Container
+	currentSize int
+	targetSize  int
 }
 
 type ProxmoxManager struct {
