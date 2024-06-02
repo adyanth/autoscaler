@@ -13,7 +13,6 @@ import (
 	"time"
 
 	k3sup "github.com/alexellis/k3sup/cmd"
-	"github.com/luthermonson/go-proxmox"
 	pm "github.com/luthermonson/go-proxmox"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
@@ -76,7 +75,7 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 	}
 
 	config := Config{}
-	if err = json.Unmarshal(data, config); err != nil {
+	if err = json.Unmarshal(data, &config); err != nil {
 		return
 	}
 
@@ -122,7 +121,7 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 func (p *ProxmoxManager) getInitialDetails(ctx context.Context) (err error) {
 	// Get first node name
 	log.Println("Getting first node")
-	var nodeStatuses proxmox.NodeStatuses
+	var nodeStatuses pm.NodeStatuses
 	nodeStatuses, err = p.Client.Nodes(ctx)
 	if err != nil {
 		return
@@ -166,7 +165,7 @@ func (n *NodeGroupManager) cloneToNewCt(ctx context.Context, newCtrOffset int) (
 	// Clone reference container. Return value is 0 when providing NewID
 	newId := n.NodeConfig.RefCtrId + newCtrOffset
 	log.Printf("Cloning reference container %s to new container %d\n", n.refCtr.Name, newId)
-	_, task, err := n.refCtr.Clone(ctx, &proxmox.ContainerCloneOptions{
+	_, task, err := n.refCtr.Clone(ctx, &pm.ContainerCloneOptions{
 		NewID:    newId,
 		Hostname: fmt.Sprintf("%s-%d", n.NodeConfig.WorkerNamePrefix, newCtrOffset),
 		Pool:     n.NodeConfig.TargetPool,

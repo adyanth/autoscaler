@@ -107,7 +107,7 @@ func (n *NodeGroupManager) DeleteNodes(nodes []*apiv1.Node) error {
 	for _, node := range nodes {
 		refId, ok1 := node.Labels[RefIdLabel]
 		nodeOffsetStr, ok2 := node.Labels[OffsetLabel]
-		if !(ok1 && ok2 && refId == string(n.NodeConfig.RefCtrId)) {
+		if !(ok1 && ok2 && refId == fmt.Sprint(n.NodeConfig.RefCtrId)) {
 			return fmt.Errorf("node %s does not belong to proxmox pool %s", node.Name, n.NodeConfig.TargetPool)
 		}
 		nodeOffset, err := strconv.Atoi(nodeOffsetStr)
@@ -115,7 +115,7 @@ func (n *NodeGroupManager) DeleteNodes(nodes []*apiv1.Node) error {
 			return err
 		}
 		if nodeOffset <= 0 {
-			fmt.Errorf("node id out of range. node name: %s", node.Name)
+			return fmt.Errorf("node id out of range. node name: %s", node.Name)
 		}
 		if err := n.DeleteCt(ctx, nodeOffset); err != nil {
 			return err
