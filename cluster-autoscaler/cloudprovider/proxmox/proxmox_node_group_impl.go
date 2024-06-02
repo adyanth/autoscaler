@@ -3,7 +3,6 @@ package proxmox
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	pm "github.com/luthermonson/go-proxmox"
@@ -106,17 +105,9 @@ func (n *NodeGroupManager) AtomicIncreaseSize(delta int) error {
 func (n *NodeGroupManager) DeleteNodes(nodes []*apiv1.Node) error {
 	ctx := context.Background()
 	for _, node := range nodes {
-		refId, ok1 := node.Labels[RefIdLabel]
-		nodeOffsetStr, ok2 := node.Labels[OffsetLabel]
-		if !(ok1 && ok2 && refId == fmt.Sprint(n.NodeConfig.RefCtrId)) {
-			return fmt.Errorf("node %s does not belong to proxmox pool %s", node.Name, n.NodeConfig.TargetPool)
-		}
-		nodeOffset, err := strconv.Atoi(nodeOffsetStr)
+		nodeOffset, err := n.OwnedNodeOffset(node)
 		if err != nil {
 			return err
-		}
-		if nodeOffset <= 0 {
-			return fmt.Errorf("node id out of range. node name: %s", node.Name)
 		}
 		if err := n.DeleteCt(ctx, nodeOffset); err != nil {
 			return err
@@ -169,6 +160,7 @@ func (n *NodeGroupManager) Nodes() (instance []cloudprovider.Instance, err error
 // capacity and allocatable information as well as all pods that are started on
 // the node by default, using manifest (most likely only kube-proxy). Implementation optional.
 func (n *NodeGroupManager) TemplateNodeInfo() (*schedulerframework.NodeInfo, error) {
+	// TODO: implement this
 	return nil, cloudprovider.ErrNotImplemented
 }
 

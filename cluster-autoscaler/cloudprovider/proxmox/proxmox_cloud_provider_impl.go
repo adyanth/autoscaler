@@ -30,20 +30,25 @@ func (p *ProxmoxCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 // should not be processed by cluster autoscaler, or non-nil error if such
 // occurred. Must be implemented.
 func (p *ProxmoxCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
-	refId, ok := node.Labels[RefIdLabel]
-
-	// Not managed by autoscaler
-	if !ok {
+	if !p.manager.OwnedNode(node) {
+		// Does not belong to CA Node Group
 		return nil, nil
 	}
 
 	// Find node group
 	for _, ng := range p.manager.NodeGroupManagers {
-		if refId == fmt.Sprint(ng.NodeConfig.RefCtrId) {
+		if ng.OwnedNode(node) {
 			return ng, nil
 		}
 	}
-	return nil, fmt.Errorf("no matching nodegroup found for node %s", node.Name)
+
+	if p.manager.doNotUseNodeLabel {
+		// Alternate implementation
+		return nil, nil
+	} else {
+		// Ideal Implementation
+		return nil, fmt.Errorf("no matching nodegroup found for node %s", node.Name)
+	}
 }
 
 // HasInstance returns whether the node has corresponding instance in cloud provider,

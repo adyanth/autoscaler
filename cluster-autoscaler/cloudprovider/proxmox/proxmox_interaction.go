@@ -10,8 +10,11 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
+	"strings"
+	"strconv"
 	"time"
 
+	apiv1 "k8s.io/api/core/v1"
 	k3sup "github.com/alexellis/k3sup/cmd"
 	pm "github.com/luthermonson/go-proxmox"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
@@ -65,14 +68,22 @@ type NodeGroupManager struct {
 	refCtr      *pm.Container
 	currentSize int
 	targetSize  int
+
+	doNotUseNodeLabel bool
 }
 
 type ProxmoxManager struct {
 	Client            *pm.Client
 	NodeGroupManagers []*NodeGroupManager
+
+	doNotUseNodeLabel bool
 }
 
 func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager, err error) {
+	// Sometimes the node info does not have the label map populated, so cannot use it.
+	// Is this a bug?
+	doNotUseNodeLabel := true
+
 	data, err := io.ReadAll(configFileReader)
 	if err != nil {
 		return
@@ -115,14 +126,17 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 			K3sConfig:      config.K3sConfig,
 			TimeoutSeconds: config.ProxmoxConfig.TimeoutSeconds,
 
-			currentSize: 0,
-			targetSize:  0,
+			currentSize:       0,
+			targetSize:        0,
+			doNotUseNodeLabel: doNotUseNodeLabel,
 		})
 	}
 
 	proxmoxManager := &ProxmoxManager{
 		Client:            client,
 		NodeGroupManagers: nodeGroupManagers,
+
+		doNotUseNodeLabel: doNotUseNodeLabel,
 	}
 
 	if err = proxmoxManager.getInitialDetails(context.Background()); err != nil {
@@ -173,7 +187,7 @@ func (p *ProxmoxManager) getInitialDetails(ctx context.Context) (err error) {
 		}
 		ngm.targetSize = ngm.currentSize
 
-		// At least one node
+		// Create at least one node, until TemplateNodeInfo is implemented on the NodeGroupManager
 		if ngm.currentSize == 0 {
 			if err := ngm.IncreaseSize(1); err != nil {
 				return err
@@ -312,6 +326,54 @@ func (n *NodeGroupManager) CreateK3sWorker(ctx context.Context, newCtrOffset int
 	} else {
 		return n.joinIpToK8s(ip, newCtrOffset)
 	}
+}
+
+func (n *NodeGroupManager) OwnedNodeOffset(node *apiv1.Node) (nodeOffset int, err error) {
+	if !n.OwnedNode(node) {
+		return 0, fmt.Errorf("node %s does not belong to proxmox pool %s", node.Name, n.NodeConfig.TargetPool)
+	}
+
+	var nodeOffsetStr string
+
+	if n.doNotUseNodeLabel {
+		// Alternate Implementation
+		// Uses node name
+		nodeOffsetStr = strings.TrimPrefix(node.Name, fmt.Sprintf("%s-", n.NodeConfig.WorkerNamePrefix))
+	} else {
+		// Ideal Implementation
+		nodeOffsetStr, _ = node.Labels[OffsetLabel]
+	}
+
+	nodeOffset, err = strconv.Atoi(nodeOffsetStr)
+	if err != nil {
+		return
+	}
+
+	if nodeOffset <= 0 {
+		return 0, fmt.Errorf("node id out of range. node name: %s", node.Name)
+	}
+
+	return
+}
+
+func (n *NodeGroupManager) OwnedNode(node *apiv1.Node) bool {
+	if n.doNotUseNodeLabel {
+		// Alternate Implementation
+		// Uses node name
+		return strings.HasPrefix(node.Name, fmt.Sprintf("%s-", n.NodeConfig.WorkerNamePrefix))
+	} else {
+		// Ideal Implementation
+		return node.Labels[RefIdLabel] == fmt.Sprint(n.NodeConfig.RefCtrId)
+	}
+}
+
+func (m *ProxmoxManager) OwnedNode(node *apiv1.Node) bool {
+	if m.doNotUseNodeLabel {
+		return true
+	}
+
+	_, ok := node.Labels[RefIdLabel]
+	return ok
 }
 
 type ProxmoxCloudProvider struct {
