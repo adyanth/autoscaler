@@ -77,6 +77,7 @@ func (n *NodeGroupManager) IncreaseSize(delta int) error {
 	ctx := context.Background()
 	for i := n.currentSize + 1; i <= targetSize; i++ {
 		if err := n.CreateK3sWorker(ctx, i); err != nil {
+			n.DeleteCt(ctx, i)
 			n.FillCurrentSize(ctx)
 			return err
 		}
