@@ -199,9 +199,8 @@ func (n *NodeGroupManager) Autoprovisioned() bool {
 // NodeGroup. Returning a nil will result in using default options.
 // Implementation optional. Callers MUST handle `cloudprovider.ErrNotImplemented`.
 func (n *NodeGroupManager) GetOptions(defaults config.NodeGroupAutoscalingOptions) (*config.NodeGroupAutoscalingOptions, error) {
-	if n.NodeConfig.AutoScalingOptions == (config.NodeGroupAutoscalingOptions{}) {
-		return nil, nil
-	} else {
-		return &n.NodeConfig.AutoScalingOptions, nil
+	if n.NodeConfig.AutoScalingOptions != nil {
+		return n.NodeConfig.AutoScalingOptions, nil
 	}
+	return nil, nil
 }
