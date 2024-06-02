@@ -22,6 +22,8 @@ type NodeConfig struct {
 	RefCtrId         int
 	TargetPool       string
 	WorkerNamePrefix string
+	MinSize          int
+	MaxSize          int
 }
 
 type K3sConfig struct {
@@ -44,7 +46,7 @@ type Config struct {
 
 type NodeGroupManager struct {
 	Client         *pm.Client
-	NodeConfig     NodeConfig
+	NodeConfig     *NodeConfig
 	K3sConfig      *K3sConfig
 	TimeoutSeconds int
 
@@ -86,7 +88,7 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 	for _, nc := range config.NodeConfigs {
 		nodeGroupManagers = append(nodeGroupManagers, NodeGroupManager{
 			Client:         client,
-			NodeConfig:     nc,
+			NodeConfig:     &nc,
 			K3sConfig:      &config.K3sConfig,
 			TimeoutSeconds: config.TimeoutSeconds,
 		})

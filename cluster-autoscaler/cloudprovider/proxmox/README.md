@@ -11,7 +11,9 @@
         {
             "refCtrId": 600,
             "targetPool": "Autoscaling",
-            "workerNamePrefix": "k8s-worker-autoscaled"
+            "workerNamePrefix": "k8s-worker-autoscaled",
+            "minSize": 0,
+            "maxSize": 10,
         }
     ],
     "timeoutSeconds": 30,
