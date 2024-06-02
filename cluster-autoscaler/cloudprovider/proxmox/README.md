@@ -3,20 +3,22 @@
 
 ```json
 {
-    "insecureSkipVerify": true,
-    "apiEndpoint": "https://proxmox.cluster.local:8006/api2/json",
-    "apiUser": "root@pam!autoscaling",
-    "apiToken": "sample-api-token",
+    "proxmoxConfig": {
+        "apiEndpoint": "https://proxmox.cluster.local:8006/api2/json",
+        "apiUser": "root@pam!autoscaling",
+        "apiToken": "sample-api-token",
+        "insecureSkipVerify": true,
+        "timeoutSeconds": 30
+    },
     "nodeConfigs": [
         {
             "refCtrId": 600,
             "targetPool": "Autoscaling",
             "workerNamePrefix": "k8s-worker-autoscaled",
             "minSize": 0,
-            "maxSize": 10,
+            "maxSize": 10
         }
     ],
-    "timeoutSeconds": 30,
     "k3sConfig": {
         "sshKeyFile": "automation_key",
         "serverUser": "master",

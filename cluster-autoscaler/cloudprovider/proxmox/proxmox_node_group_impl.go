@@ -20,7 +20,7 @@ func (n *NodeGroupManager) GetPoolNodes(ctx context.Context) ([]*pm.ClusterResou
 		return nil, err
 	}
 
-	nodes := make([]*pm.ClusterResource, len(pool.Members))
+	nodes := make([]*pm.ClusterResource, 0, len(pool.Members))
 	for _, ctr := range pool.Members {
 		if strings.HasPrefix(ctr.Name, fmt.Sprintf("%s-", n.NodeConfig.WorkerNamePrefix)) {
 			nodes = append(nodes, &ctr)
