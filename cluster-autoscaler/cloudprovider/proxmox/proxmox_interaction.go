@@ -50,8 +50,11 @@ type NodeGroupManager struct {
 	K3sConfig      *K3sConfig
 	TimeoutSeconds int
 
-	node   *pm.Node
-	refCtr *pm.Container
+	node         *pm.Node
+	refCtr       *pm.Container
+	currentSize  int
+	targetSize   int
+	targetPoolId int
 }
 
 type ProxmoxManager struct {
@@ -91,6 +94,9 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 			NodeConfig:     &nc,
 			K3sConfig:      &config.K3sConfig,
 			TimeoutSeconds: config.TimeoutSeconds,
+
+			currentSize: 0,
+			targetSize:  0,
 		})
 	}
 
@@ -138,6 +144,12 @@ func (p *ProxmoxManager) getInitialDetails(ctx context.Context) (err error) {
 		if ngm.NodeConfig.WorkerNamePrefix == "" {
 			ngm.NodeConfig.WorkerNamePrefix = ngm.refCtr.Name
 		}
+
+		// Set current and target size
+		if err = ngm.FillCurrentSize(ctx); err != nil {
+			return
+		}
+		ngm.targetSize = ngm.currentSize
 	}
 
 	return
@@ -262,6 +274,14 @@ func (n *NodeGroupManager) JoinIpToK8s(ip netip.Addr) (err error) {
 		log.Println("Joined!")
 	}
 	return
+}
+
+func (n *NodeGroupManager) CreateK3sWorker(ctx context.Context, newCtrOffset int) (err error) {
+	if ip, err := n.CloneToNewCt(ctx, newCtrOffset); err != nil {
+		return err
+	} else {
+		return n.JoinIpToK8s(ip)
+	}
 }
 
 type ProxmoxCloudProvider struct {

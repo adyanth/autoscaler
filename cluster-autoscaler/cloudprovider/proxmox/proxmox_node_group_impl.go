@@ -1,28 +1,79 @@
 package proxmox
 
 import (
+	"context"
+	"fmt"
+	"strings"
+
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
 	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
+func (n *NodeGroupManager) FillCurrentSize(ctx context.Context) error {
+	// List existing LXC containers
+	pool, err := n.Client.Pool(ctx, n.NodeConfig.TargetPool, "lxc")
+	if err != nil {
+		return err
+	}
+
+	// Count number of existing nodes
+	n.currentSize = 0
+	for _, ctr := range pool.Members {
+		if strings.HasPrefix(ctr.Name, fmt.Sprintf("%s-", n.NodeConfig.WorkerNamePrefix)) && ctr.Status == "running" {
+			n.currentSize += 1
+		}
+	}
+
+	return nil
+}
+
 // MaxSize returns maximum size of the node group.
-func (n *NodeGroupManager) MaxSize() int {}
+func (n *NodeGroupManager) MaxSize() int {
+	return n.NodeConfig.MaxSize
+}
 
 // MinSize returns minimum size of the node group.
-func (n *NodeGroupManager) MinSize() int {}
+func (n *NodeGroupManager) MinSize() int {
+	return n.NodeConfig.MinSize
+}
 
 // TargetSize returns the current target size of the node group. It is possible that the
 // number of nodes in Kubernetes is different at the moment but should be equal
 // to Size() once everything stabilizes (new nodes finish startup and registration or
 // removed nodes are deleted completely). Implementation required.
-func (n *NodeGroupManager) TargetSize() (int, error) {}
+func (n *NodeGroupManager) TargetSize() (int, error) {
+	return n.targetSize, nil
+}
 
 // IncreaseSize increases the size of the node group. To delete a node you need
 // to explicitly name it and use DeleteNode. This function should wait until
 // node group size is updated. Implementation required.
-func (n *NodeGroupManager) IncreaseSize(delta int) error {}
+func (n *NodeGroupManager) IncreaseSize(delta int) error {
+	if delta <= 0 {
+		return fmt.Errorf("delta must be positive, have: %d", delta)
+	}
+
+	targetSize := n.targetSize + delta
+
+	if targetSize > n.MaxSize() {
+		return fmt.Errorf("increase size request takes count beyond max size. current: %d desired: %d max: %d",
+			n.currentSize, targetSize, n.MaxSize())
+	}
+
+	n.targetSize = targetSize
+
+	ctx := context.Background()
+	for i := n.currentSize + 1; i <= targetSize; i++ {
+		if err := n.CreateK3sWorker(ctx, i); err != nil {
+			n.FillCurrentSize(ctx)
+			return err
+		}
+	}
+
+	return nil
+}
 
 // AtomicIncreaseSize tries to increase the size of the node group atomically.
 //   - If the method returns nil, it guarantees that delta instances will be added to the node group
