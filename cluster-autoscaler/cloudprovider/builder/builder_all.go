@@ -86,6 +86,7 @@ var AvailableCloudProviders = []string{
 	cloudprovider.ScalewayProviderName,
 	cloudprovider.RancherProviderName,
 	cloudprovider.VolcengineProviderName,
+	cloudprovider.ProxmoxProviderName,
 }
 
 // DefaultCloudProvider is GCE.
