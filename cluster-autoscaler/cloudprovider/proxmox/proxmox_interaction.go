@@ -30,7 +30,7 @@ type NodeConfig struct {
 	WorkerNamePrefix   string
 	MinSize            int
 	MaxSize            int
-	AutoScalingOptions config.NodeGroupAutoscalingOptions
+	AutoScalingOptions *config.NodeGroupAutoscalingOptions
 }
 
 type K3sConfig struct {
@@ -40,15 +40,19 @@ type K3sConfig struct {
 	User       string // Worker node SSH login user
 }
 
-// Configuration of the Proxmox Cloud Provider
-type Config struct {
-	InsecureSkipVerify bool
+type ProxmoxConfig struct {
 	ApiEndpoint        string
 	ApiUser            string
 	ApiToken           string
-	NodeConfigs        []NodeConfig
+	InsecureSkipVerify bool
 	TimeoutSeconds     int
-	K3sConfig          K3sConfig
+}
+
+// Configuration of the Proxmox Cloud Provider
+type Config struct {
+	ProxmoxConfig *ProxmoxConfig
+	NodeConfigs   []*NodeConfig
+	K3sConfig     *K3sConfig
 }
 
 type NodeGroupManager struct {
@@ -79,17 +83,27 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 		return
 	}
 
+	if config.ProxmoxConfig == nil {
+		return nil, fmt.Errorf("proxmoxConfig cannot be empty")
+	}
+	if config.K3sConfig == nil {
+		return nil, fmt.Errorf("k3sConfig cannot be empty")
+	}
+	if len(config.NodeConfigs) == 0 {
+		return nil, fmt.Errorf("need at least one entry nodeConfigs")
+	}
+
 	httpClient := http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: config.InsecureSkipVerify,
+				InsecureSkipVerify: config.ProxmoxConfig.InsecureSkipVerify,
 			},
 		},
 	}
 
-	client := pm.NewClient(config.ApiEndpoint,
+	client := pm.NewClient(config.ProxmoxConfig.ApiEndpoint,
 		pm.WithHTTPClient(&httpClient),
-		pm.WithAPIToken(config.ApiUser, config.ApiToken),
+		pm.WithAPIToken(config.ProxmoxConfig.ApiUser, config.ProxmoxConfig.ApiToken),
 	)
 
 	nodeGroupManagers := make([]*NodeGroupManager, 0, len(config.NodeConfigs))
@@ -97,9 +111,9 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 	for _, nc := range config.NodeConfigs {
 		nodeGroupManagers = append(nodeGroupManagers, &NodeGroupManager{
 			Client:         client,
-			NodeConfig:     &nc,
-			K3sConfig:      &config.K3sConfig,
-			TimeoutSeconds: config.TimeoutSeconds,
+			NodeConfig:     nc,
+			K3sConfig:      config.K3sConfig,
+			TimeoutSeconds: config.ProxmoxConfig.TimeoutSeconds,
 
 			currentSize: 0,
 			targetSize:  0,
