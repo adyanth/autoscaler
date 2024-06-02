@@ -125,7 +125,9 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 		NodeGroupManagers: nodeGroupManagers,
 	}
 
-	proxmoxManager.getInitialDetails(context.Background())
+	if err = proxmoxManager.getInitialDetails(context.Background()); err != nil {
+		return
+	}
 
 	return proxmoxManager, nil
 }
@@ -170,6 +172,13 @@ func (p *ProxmoxManager) getInitialDetails(ctx context.Context) (err error) {
 			return
 		}
 		ngm.targetSize = ngm.currentSize
+
+		// At least one node
+		if ngm.currentSize == 0 {
+			if err := ngm.IncreaseSize(1); err != nil {
+				return err
+			}
+		}
 	}
 
 	return
