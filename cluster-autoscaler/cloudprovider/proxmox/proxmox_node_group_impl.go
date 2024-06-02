@@ -103,17 +103,17 @@ func (n *NodeGroupManager) AtomicIncreaseSize(delta int) error {
 // failure or if the given node doesn't belong to this node group. This function
 // should wait until node group size is updated. Implementation required.
 func (n *NodeGroupManager) DeleteNodes(nodes []*apiv1.Node) error {
-	prefix := fmt.Sprintf("%s-", n.NodeConfig.WorkerNamePrefix)
 	ctx := context.Background()
 	for _, node := range nodes {
-		if !strings.HasPrefix(node.Name, prefix) {
+		refId, ok1 := node.Labels[RefIdLabel]
+		nodeOffsetStr, ok2 := node.Labels[OffsetLabel]
+		if !(ok1 && ok2 && refId == string(n.NodeConfig.RefCtrId)) {
 			return fmt.Errorf("node %s does not belong to proxmox pool %s", node.Name, n.NodeConfig.TargetPool)
 		}
-		nodeToDelete, err := strconv.Atoi(strings.TrimPrefix(node.Name, prefix))
+		nodeOffset, err := strconv.Atoi(nodeOffsetStr)
 		if err != nil {
 			return err
 		}
-		nodeOffset := nodeToDelete - n.NodeConfig.RefCtrId
 		if nodeOffset <= 0 {
 			fmt.Errorf("node id out of range. node name: %s", node.Name)
 		}

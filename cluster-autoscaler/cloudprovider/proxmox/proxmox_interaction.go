@@ -19,6 +19,12 @@ import (
 	"k8s.io/autoscaler/cluster-autoscaler/config"
 )
 
+const (
+	RefIdLabel  = "proxmoxRefId"
+	OffsetLabel = "proxmoxOffset"
+	GPULabel    = "proxmox/gpu"
+)
+
 type NodeConfig struct {
 	RefCtrId           int
 	TargetPool         string
@@ -156,7 +162,7 @@ func (p *ProxmoxManager) getInitialDetails(ctx context.Context) (err error) {
 	return
 }
 
-func (n *NodeGroupManager) CloneToNewCt(ctx context.Context, newCtrOffset int) (ip netip.Addr, err error) {
+func (n *NodeGroupManager) cloneToNewCt(ctx context.Context, newCtrOffset int) (ip netip.Addr, err error) {
 	// Clone reference container. Return value is 0 when providing NewID
 	newId := n.NodeConfig.RefCtrId + newCtrOffset
 	log.Printf("Cloning reference container %s to new container %d\n", n.refCtr.Name, newId)
@@ -261,7 +267,7 @@ func (n *NodeGroupManager) DeleteCt(ctx context.Context, ctrOffset int) (err err
 	return
 }
 
-func (n *NodeGroupManager) JoinIpToK8s(ip netip.Addr) (err error) {
+func (n *NodeGroupManager) joinIpToK8s(ip netip.Addr, offset int) (err error) {
 	joinCmd := k3sup.MakeJoin()
 
 	joinCmd.Flags().Set("ssh-key", n.K3sConfig.SshKeyFile)
@@ -269,6 +275,7 @@ func (n *NodeGroupManager) JoinIpToK8s(ip netip.Addr) (err error) {
 	joinCmd.Flags().Set("server-host", n.K3sConfig.ServerHost)
 	joinCmd.Flags().Set("user", n.K3sConfig.User)
 	joinCmd.Flags().Set("host", ip.String())
+	joinCmd.Flags().Set("k3s-extra-args", fmt.Sprintf("--node-label %s=%d --node-label %s=%d", RefIdLabel, n.NodeConfig.RefCtrId, OffsetLabel, offset))
 
 	log.Printf("Joining %v to %s\n", ip, n.K3sConfig.ServerHost)
 	if err = joinCmd.Execute(); err == nil {
@@ -278,10 +285,10 @@ func (n *NodeGroupManager) JoinIpToK8s(ip netip.Addr) (err error) {
 }
 
 func (n *NodeGroupManager) CreateK3sWorker(ctx context.Context, newCtrOffset int) (err error) {
-	if ip, err := n.CloneToNewCt(ctx, newCtrOffset); err != nil {
+	if ip, err := n.cloneToNewCt(ctx, newCtrOffset); err != nil {
 		return err
 	} else {
-		return n.JoinIpToK8s(ip)
+		return n.joinIpToK8s(ip, newCtrOffset)
 	}
 }
 
