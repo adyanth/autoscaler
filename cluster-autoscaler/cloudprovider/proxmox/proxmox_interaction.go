@@ -54,7 +54,7 @@ type NodeGroupManager struct {
 
 type ProxmoxManager struct {
 	Client            *pm.Client
-	NodeGroupManagers []*NodeGroupManager
+	NodeGroupManagers []NodeGroupManager
 }
 
 func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager, err error) {
@@ -81,10 +81,10 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 		pm.WithAPIToken(config.ApiUser, config.ApiToken),
 	)
 
-	nodeGroupManagers := make([]*NodeGroupManager, len(config.NodeConfigs))
+	nodeGroupManagers := make([]NodeGroupManager, len(config.NodeConfigs))
 
 	for _, nc := range config.NodeConfigs {
-		nodeGroupManagers = append(nodeGroupManagers, &NodeGroupManager{
+		nodeGroupManagers = append(nodeGroupManagers, NodeGroupManager{
 			Client:         client,
 			NodeConfig:     nc,
 			K3sConfig:      &config.K3sConfig,
