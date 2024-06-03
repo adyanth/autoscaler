@@ -277,19 +277,22 @@ func (n *NodeGroupManager) DeleteCt(ctx context.Context, ctrOffset int) (err err
 	}
 
 	// Shutdown container
-	task, err := ctr.Shutdown(ctx, true, n.TimeoutSeconds)
-	if err != nil {
-		return err
-	}
+	if ctr.Status == "running" {
+		task, err := ctr.Shutdown(ctx, true, n.TimeoutSeconds)
+		if err != nil {
+			return err
+		}
 
-	// Wait for shutdown
-	log.Printf("Waiting for %s to shutdown", ctr.Name)
-	if err = task.WaitFor(ctx, n.TimeoutSeconds); err != nil {
-		return
+		// Wait for shutdown
+		log.Printf("Waiting for %s to shutdown", ctr.Name)
+		if err = task.WaitFor(ctx, n.TimeoutSeconds); err != nil {
+			return err
+		}
 	}
 
 	// Delete container
-	if task, err = ctr.Delete(ctx); err != nil {
+	task, err := ctr.Delete(ctx)
+	if err != nil {
 		return
 	}
 
