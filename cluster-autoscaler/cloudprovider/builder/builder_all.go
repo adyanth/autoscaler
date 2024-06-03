@@ -45,6 +45,7 @@ import (
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider/magnum"
 	oci "k8s.io/autoscaler/cluster-autoscaler/cloudprovider/oci/instancepools"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider/ovhcloud"
+	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider/proxmox"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider/rancher"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider/scaleway"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider/tencentcloud"
@@ -85,6 +86,7 @@ var AvailableCloudProviders = []string{
 	cloudprovider.ScalewayProviderName,
 	cloudprovider.RancherProviderName,
 	cloudprovider.VolcengineProviderName,
+	cloudprovider.ProxmoxProviderName,
 }
 
 // DefaultCloudProvider is GCE.
@@ -153,6 +155,8 @@ func buildCloudProvider(opts config.AutoscalingOptions,
 		return rancher.BuildRancher(opts, do, rl)
 	case cloudprovider.VolcengineProviderName:
 		return volcengine.BuildVolcengine(opts, do, rl)
+	case cloudprovider.ProxmoxProviderName:
+		return proxmox.BuildProxmoxEngine(opts, do, rl)
 	}
 	return nil
 }
