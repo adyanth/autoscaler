@@ -10,21 +10,21 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
-	"strings"
 	"strconv"
+	"strings"
 	"time"
 
-	apiv1 "k8s.io/api/core/v1"
 	k3sup "github.com/alexellis/k3sup/cmd"
 	pm "github.com/luthermonson/go-proxmox"
+	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
 )
 
 const (
-	RefIdLabel  = "proxmoxRefId"
-	OffsetLabel = "proxmoxOffset"
-	GPULabel    = "proxmox/gpu"
+	ManagedByTag = "mgd-by-pxmx-ca"
+	ProviderId   = "proxmox"
+	GPULabel     = "proxmox/gpu"
 )
 
 type NodeConfig struct {
@@ -74,7 +74,7 @@ type NodeGroupManager struct {
 
 type ProxmoxManager struct {
 	Client            *pm.Client
-	NodeGroupManagers []*NodeGroupManager
+	NodeGroupManagers map[string]*NodeGroupManager
 
 	doNotUseNodeLabel bool
 }
@@ -117,10 +117,10 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 		pm.WithAPIToken(config.ProxmoxConfig.ApiUser, config.ProxmoxConfig.ApiToken),
 	)
 
-	nodeGroupManagers := make([]*NodeGroupManager, 0, len(config.NodeConfigs))
+	nodeGroupManagers := make(map[string]*NodeGroupManager, len(config.NodeConfigs))
 
 	for _, nc := range config.NodeConfigs {
-		nodeGroupManagers = append(nodeGroupManagers, &NodeGroupManager{
+		nodeGroupManagers[nc.TargetPool] = &NodeGroupManager{
 			Client:         client,
 			NodeConfig:     nc,
 			K3sConfig:      config.K3sConfig,
@@ -129,7 +129,7 @@ func newProxmoxManager(configFileReader io.ReadCloser) (proxmox *ProxmoxManager,
 			currentSize:       0,
 			targetSize:        0,
 			doNotUseNodeLabel: doNotUseNodeLabel,
-		})
+		}
 	}
 
 	proxmoxManager := &ProxmoxManager{
@@ -182,7 +182,7 @@ func (p *ProxmoxManager) getInitialDetails(ctx context.Context) (err error) {
 		}
 
 		// Set current and target size
-		if err = ngm.FillCurrentSize(ctx); err != nil {
+		if err = ngm.fillCurrentSize(ctx); err != nil {
 			return
 		}
 		ngm.targetSize = ngm.currentSize
@@ -196,6 +196,18 @@ func (p *ProxmoxManager) getInitialDetails(ctx context.Context) (err error) {
 	}
 
 	return
+}
+
+func (n *NodeGroupManager) getTagsForOffset(offset int) string {
+	tags := make([]string, 0, 3)
+	tags = append(tags, ManagedByTag)
+	tags = append(tags, fmt.Sprintf("refId-%d", n.NodeConfig.RefCtrId))
+	tags = append(tags, fmt.Sprintf("offset-%d", offset))
+	return strings.Join(tags, ";")
+}
+
+func (n *NodeGroupManager) getTagsFromTagString(tags string) []string {
+	return strings.Split(tags, ";")
 }
 
 func (n *NodeGroupManager) cloneToNewCt(ctx context.Context, newCtrOffset int) (ip netip.Addr, err error) {
@@ -221,6 +233,20 @@ func (n *NodeGroupManager) cloneToNewCt(ctx context.Context, newCtrOffset int) (
 	log.Printf("Getting the new container object for %d\n", newId)
 	newCtr, err := n.node.Container(ctx, newId)
 	if err != nil {
+		return
+	}
+
+	// Add needed tags
+	tags := n.getTagsForOffset(newId)
+	log.Printf("Adding tags to the new container %s: %s\n", newCtr.Name, tags)
+	task, err = newCtr.Config(ctx, pm.ContainerOption{
+		Name:  "tags",
+		Value: tags,
+	})
+	if err != nil {
+		return
+	}
+	if err = task.WaitFor(ctx, n.TimeoutSeconds); err != nil {
 		return
 	}
 
@@ -268,10 +294,14 @@ func (n *NodeGroupManager) cloneToNewCt(ctx context.Context, newCtrOffset int) (
 	}
 }
 
+func (n *NodeGroupManager) getCtrIdFromOffset(offset int) int {
+	return n.NodeConfig.RefCtrId + offset
+}
+
 func (n *NodeGroupManager) DeleteCt(ctx context.Context, ctrOffset int) (err error) {
 	// Get container object
-	log.Printf("Getting the container object for %d\n", n.NodeConfig.RefCtrId+ctrOffset)
-	ctr, err := n.node.Container(ctx, n.NodeConfig.RefCtrId+ctrOffset)
+	log.Printf("Getting the container object for %d\n", n.getCtrIdFromOffset(ctrOffset))
+	ctr, err := n.node.Container(ctx, n.getCtrIdFromOffset(ctrOffset))
 	if err != nil {
 		return
 	}
@@ -306,6 +336,66 @@ func (n *NodeGroupManager) DeleteCt(ctx context.Context, ctrOffset int) (err err
 	return
 }
 
+func extractDetailsFromProviderId(node *apiv1.Node) (targetPool string, refCtrId int, offset int, err error) {
+	providerAndRest := strings.Split(node.Spec.ProviderID, "://")
+
+	// Check if managed by provider
+	if len(providerAndRest) != 2 || providerAndRest[0] != ProviderId {
+		return
+	}
+
+	targelPoolRefCtrIdOffset := strings.Split(providerAndRest[1], "/")
+	if len(targelPoolRefCtrIdOffset) != 3 {
+		err = fmt.Errorf("node %s providerId invalid, does not match %s provider format: %s", node.Name, ProviderId, node.Spec.ProviderID)
+		return
+	}
+
+	targetPool = targelPoolRefCtrIdOffset[0]
+	refCtrId, errConvId := strconv.Atoi(targelPoolRefCtrIdOffset[1])
+	offset, errConvOff := strconv.Atoi(targelPoolRefCtrIdOffset[2])
+	if errConvId != nil || errConvOff != nil {
+		err = fmt.Errorf("node %s providerId invalid, does not match %s provider format: %s", node.Name, ProviderId, node.Spec.ProviderID)
+		return
+	}
+	return
+}
+
+func (p *ProxmoxManager) getDetailsFromNode(node *apiv1.Node) (n *NodeGroupManager, offset int, err error) {
+	targetPool, refCtrId, offset, err := extractDetailsFromProviderId(node)
+	if err != nil {
+		return
+	}
+
+	// Not managed by us
+	if targetPool == "" && refCtrId == 0 && offset == 0 {
+		return
+	}
+
+	var ok bool
+	if n, ok = p.NodeGroupManagers[targetPool]; !ok || n.NodeConfig.RefCtrId != refCtrId {
+		return nil, 0, fmt.Errorf("no node group managers found for node: %s with pool: %s and refCtrId: %d", node.Name, targetPool, refCtrId)
+	}
+
+	return
+}
+
+func (n *NodeGroupManager) getDetailsFromNode(node *apiv1.Node) (offset int, err error) {
+	targetPool, refCtrId, offset, err := extractDetailsFromProviderId(node)
+	if err != nil {
+		return
+	}
+
+	if n.NodeConfig.TargetPool != targetPool || n.NodeConfig.RefCtrId != refCtrId {
+		return 0, fmt.Errorf("this nodegroup manager does not contain node: %s with pool: %s and refCtrId: %d", node.Name, targetPool, refCtrId)
+	}
+
+	return
+}
+
+func (n *NodeGroupManager) getProviderId(offset int) string {
+	return fmt.Sprintf("%s://%s/%d/%d", ProviderId, n.NodeConfig.TargetPool, n.NodeConfig.RefCtrId, offset)
+}
+
 func (n *NodeGroupManager) joinIpToK8s(ip netip.Addr, offset int) (err error) {
 	joinCmd := k3sup.MakeJoin()
 
@@ -314,7 +404,7 @@ func (n *NodeGroupManager) joinIpToK8s(ip netip.Addr, offset int) (err error) {
 	joinCmd.Flags().Set("server-host", n.K3sConfig.ServerHost)
 	joinCmd.Flags().Set("user", n.K3sConfig.User)
 	joinCmd.Flags().Set("host", ip.String())
-	joinCmd.Flags().Set("k3s-extra-args", fmt.Sprintf("--node-label %s=%d --node-label %s=%d", RefIdLabel, n.NodeConfig.RefCtrId, OffsetLabel, offset))
+	joinCmd.Flags().Set("k3s-extra-args", fmt.Sprintf("--provider-id %s", n.getProviderId(offset)))
 
 	log.Printf("Joining %v to %s\n", ip, n.K3sConfig.ServerHost)
 	if err = joinCmd.Execute(); err == nil {
@@ -332,51 +422,16 @@ func (n *NodeGroupManager) CreateK3sWorker(ctx context.Context, newCtrOffset int
 }
 
 func (n *NodeGroupManager) OwnedNodeOffset(node *apiv1.Node) (nodeOffset int, err error) {
-	if !n.OwnedNode(node) {
-		return 0, fmt.Errorf("node %s does not belong to proxmox pool %s", node.Name, n.NodeConfig.TargetPool)
-	}
-
-	var nodeOffsetStr string
-
-	if n.doNotUseNodeLabel {
-		// Alternate Implementation
-		// Uses node name
-		nodeOffsetStr = strings.TrimPrefix(node.Name, fmt.Sprintf("%s-", n.NodeConfig.WorkerNamePrefix))
-	} else {
-		// Ideal Implementation
-		nodeOffsetStr, _ = node.Labels[OffsetLabel]
-	}
-
-	nodeOffset, err = strconv.Atoi(nodeOffsetStr)
-	if err != nil {
-		return
-	}
-
-	if nodeOffset <= 0 {
-		return 0, fmt.Errorf("node id out of range. node name: %s", node.Name)
-	}
-
-	return
+	return n.getDetailsFromNode(node)
 }
 
 func (n *NodeGroupManager) OwnedNode(node *apiv1.Node) bool {
-	if n.doNotUseNodeLabel {
-		// Alternate Implementation
-		// Uses node name
-		return strings.HasPrefix(node.Name, fmt.Sprintf("%s-", n.NodeConfig.WorkerNamePrefix))
-	} else {
-		// Ideal Implementation
-		return node.Labels[RefIdLabel] == fmt.Sprint(n.NodeConfig.RefCtrId)
-	}
+	_, err := n.getDetailsFromNode(node)
+	return err == nil
 }
 
 func (m *ProxmoxManager) OwnedNode(node *apiv1.Node) bool {
-	if m.doNotUseNodeLabel {
-		return true
-	}
-
-	_, ok := node.Labels[RefIdLabel]
-	return ok
+	return strings.HasPrefix(node.Spec.ProviderID, "proxmox://")
 }
 
 type ProxmoxCloudProvider struct {

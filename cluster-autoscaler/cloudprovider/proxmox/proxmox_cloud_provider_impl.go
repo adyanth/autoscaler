@@ -2,7 +2,6 @@ package proxmox
 
 import (
 	"context"
-	"fmt"
 
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -30,36 +29,19 @@ func (p *ProxmoxCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 // should not be processed by cluster autoscaler, or non-nil error if such
 // occurred. Must be implemented.
 func (p *ProxmoxCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
-	if !p.manager.OwnedNode(node) {
-		// Does not belong to CA Node Group
-		return nil, nil
-	}
-
-	// Find node group
-	for _, ng := range p.manager.NodeGroupManagers {
-		if ng.OwnedNode(node) {
-			return ng, nil
-		}
-	}
-
-	if p.manager.doNotUseNodeLabel {
-		// Alternate implementation
-		return nil, nil
-	} else {
-		// Ideal Implementation
-		return nil, fmt.Errorf("no matching nodegroup found for node %s", node.Name)
-	}
+	ng, _, err := p.manager.getDetailsFromNode(node)
+	return ng, err
 }
 
 // HasInstance returns whether the node has corresponding instance in cloud provider,
 // true if the node has an instance, false if it no longer exists
 func (p *ProxmoxCloudProvider) HasInstance(node *apiv1.Node) (bool, error) {
-	_, err := p.NodeGroupForNode(node)
-	if err != nil {
+	ngm, offset, err := p.manager.getDetailsFromNode(node)
+	if err != nil || ngm == nil {
 		return false, err
-	} else {
-		return true, nil
 	}
+	_, err = ngm.node.Container(context.Background(), ngm.getCtrIdFromOffset(offset))
+	return err == nil, nil
 }
 
 // Pricing returns pricing model for this cloud provider or error if not available.
@@ -113,7 +95,7 @@ func (p *ProxmoxCloudProvider) Cleanup() error {
 func (p *ProxmoxCloudProvider) Refresh() error {
 	ctx := context.Background()
 	for _, ngm := range p.manager.NodeGroupManagers {
-		ngm.FillCurrentSize(ctx)
+		ngm.fillCurrentSize(ctx)
 	}
 	return nil
 }

@@ -3,7 +3,7 @@ package proxmox
 import (
 	"context"
 	"fmt"
-	"strings"
+	"slices"
 
 	pm "github.com/luthermonson/go-proxmox"
 	apiv1 "k8s.io/api/core/v1"
@@ -12,7 +12,7 @@ import (
 	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
-func (n *NodeGroupManager) GetPoolNodes(ctx context.Context) ([]*pm.ClusterResource, error) {
+func (n *NodeGroupManager) getPoolNodes(ctx context.Context) ([]*pm.ClusterResource, error) {
 	// List existing LXC containers
 	pool, err := n.Client.Pool(ctx, n.NodeConfig.TargetPool, "lxc")
 	if err != nil {
@@ -21,7 +21,7 @@ func (n *NodeGroupManager) GetPoolNodes(ctx context.Context) ([]*pm.ClusterResou
 
 	nodes := make([]*pm.ClusterResource, 0, len(pool.Members))
 	for _, ctr := range pool.Members {
-		if strings.HasPrefix(ctr.Name, fmt.Sprintf("%s-", n.NodeConfig.WorkerNamePrefix)) {
+		if slices.Contains(n.getTagsFromTagString(ctr.Tags), ManagedByTag) {
 			nodes = append(nodes, &ctr)
 		}
 	}
@@ -29,8 +29,8 @@ func (n *NodeGroupManager) GetPoolNodes(ctx context.Context) ([]*pm.ClusterResou
 	return nodes, nil
 }
 
-func (n *NodeGroupManager) FillCurrentSize(ctx context.Context) error {
-	if resources, err := n.GetPoolNodes(ctx); err != nil {
+func (n *NodeGroupManager) fillCurrentSize(ctx context.Context) error {
+	if resources, err := n.getPoolNodes(ctx); err != nil {
 		return err
 	} else {
 		n.currentSize = len(resources)
@@ -77,7 +77,7 @@ func (n *NodeGroupManager) IncreaseSize(delta int) error {
 	for i := n.currentSize + 1; i <= targetSize; i++ {
 		if err := n.CreateK3sWorker(ctx, i); err != nil {
 			n.DeleteCt(ctx, i)
-			n.FillCurrentSize(ctx)
+			n.fillCurrentSize(ctx)
 			return err
 		}
 	}
@@ -141,7 +141,7 @@ func (n *NodeGroupManager) Debug() string {
 // Other fields are optional.
 // This list should include also instances that might have not become a kubernetes node yet.
 func (n *NodeGroupManager) Nodes() (instance []cloudprovider.Instance, err error) {
-	nodes, err := n.GetPoolNodes(context.Background())
+	nodes, err := n.getPoolNodes(context.Background())
 	if err != nil {
 		return nil, err
 	}
