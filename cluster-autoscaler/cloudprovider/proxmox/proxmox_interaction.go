@@ -186,13 +186,6 @@ func (p *ProxmoxManager) getInitialDetails(ctx context.Context) (err error) {
 			return
 		}
 		ngm.targetSize = ngm.currentSize
-
-		// Create at least one node, until TemplateNodeInfo is implemented on the NodeGroupManager
-		if ngm.currentSize == 0 {
-			if err := ngm.IncreaseSize(1); err != nil {
-				return err
-			}
-		}
 	}
 
 	return
@@ -210,13 +203,21 @@ func (n *NodeGroupManager) getTagsFromTagString(tags string) []string {
 	return strings.Split(tags, ";")
 }
 
+func (n *NodeGroupManager) getHostNameForOffset(offset int) string {
+	return fmt.Sprintf("%s-%d", n.NodeConfig.WorkerNamePrefix, offset)
+}
+
+func (n *NodeGroupManager) getHostNamePrefix() string {
+	return fmt.Sprintf("%s-", n.NodeConfig.WorkerNamePrefix)
+}
+
 func (n *NodeGroupManager) cloneToNewCt(ctx context.Context, newCtrOffset int) (ip netip.Addr, err error) {
 	// Clone reference container. Return value is 0 when providing NewID
 	newId := n.NodeConfig.RefCtrId + newCtrOffset
 	log.Printf("Cloning reference container %s to new container %d\n", n.refCtr.Name, newId)
 	_, task, err := n.refCtr.Clone(ctx, &pm.ContainerCloneOptions{
 		NewID:    newId,
-		Hostname: fmt.Sprintf("%s-%d", n.NodeConfig.WorkerNamePrefix, newCtrOffset),
+		Hostname: n.getHostNameForOffset(newCtrOffset),
 		Pool:     n.NodeConfig.TargetPool,
 	})
 	if err != nil {
@@ -237,16 +238,13 @@ func (n *NodeGroupManager) cloneToNewCt(ctx context.Context, newCtrOffset int) (
 	}
 
 	// Add needed tags
-	tags := n.getTagsForOffset(newId)
+	tags := n.getTagsForOffset(newCtrOffset)
 	log.Printf("Adding tags to the new container %s: %s\n", newCtr.Name, tags)
-	task, err = newCtr.Config(ctx, pm.ContainerOption{
+	_, err = newCtr.Config(ctx, pm.ContainerOption{
 		Name:  "tags",
 		Value: tags,
 	})
 	if err != nil {
-		return
-	}
-	if err = task.WaitFor(ctx, n.TimeoutSeconds); err != nil {
 		return
 	}
 
@@ -306,9 +304,9 @@ func (n *NodeGroupManager) DeleteCt(ctx context.Context, ctrOffset int) (err err
 		return
 	}
 
-	// Shutdown container
+	// Stop container
 	if ctr.Status == "running" {
-		task, err := ctr.Shutdown(ctx, true, n.TimeoutSeconds)
+		task, err := ctr.Stop(ctx)
 		if err != nil {
 			return err
 		}
@@ -404,7 +402,7 @@ func (n *NodeGroupManager) joinIpToK8s(ip netip.Addr, offset int) (err error) {
 	joinCmd.Flags().Set("server-host", n.K3sConfig.ServerHost)
 	joinCmd.Flags().Set("user", n.K3sConfig.User)
 	joinCmd.Flags().Set("host", ip.String())
-	joinCmd.Flags().Set("k3s-extra-args", fmt.Sprintf("--provider-id %s", n.getProviderId(offset)))
+	joinCmd.Flags().Set("k3s-extra-args", fmt.Sprintf(`--kubelet-arg "provider-id=%s"`, n.getProviderId(offset)))
 
 	log.Printf("Joining %v to %s\n", ip, n.K3sConfig.ServerHost)
 	if err = joinCmd.Execute(); err == nil {

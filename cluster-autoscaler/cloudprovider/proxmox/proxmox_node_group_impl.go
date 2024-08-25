@@ -3,10 +3,13 @@ package proxmox
 import (
 	"context"
 	"fmt"
-	"slices"
+	"math/rand"
+	"strings"
 
 	pm "github.com/luthermonson/go-proxmox"
-	apiv1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
 	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
@@ -21,7 +24,7 @@ func (n *NodeGroupManager) getPoolNodes(ctx context.Context) ([]*pm.ClusterResou
 
 	nodes := make([]*pm.ClusterResource, 0, len(pool.Members))
 	for _, ctr := range pool.Members {
-		if slices.Contains(n.getTagsFromTagString(ctr.Tags), ManagedByTag) {
+		if strings.HasPrefix(ctr.Name, n.getHostNamePrefix()) {
 			nodes = append(nodes, &ctr)
 		}
 	}
@@ -74,14 +77,13 @@ func (n *NodeGroupManager) IncreaseSize(delta int) error {
 	n.targetSize = targetSize
 
 	ctx := context.Background()
+	n.fillCurrentSize(ctx)
 	for i := n.currentSize + 1; i <= targetSize; i++ {
 		if err := n.CreateK3sWorker(ctx, i); err != nil {
 			n.DeleteCt(ctx, i)
-			n.fillCurrentSize(ctx)
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -102,7 +104,7 @@ func (n *NodeGroupManager) AtomicIncreaseSize(delta int) error {
 // DeleteNodes deletes nodes from this node group. Error is returned either on
 // failure or if the given node doesn't belong to this node group. This function
 // should wait until node group size is updated. Implementation required.
-func (n *NodeGroupManager) DeleteNodes(nodes []*apiv1.Node) error {
+func (n *NodeGroupManager) DeleteNodes(nodes []*corev1.Node) error {
 	ctx := context.Background()
 	for _, node := range nodes {
 		nodeOffset, err := n.OwnedNodeOffset(node)
@@ -159,9 +161,36 @@ func (n *NodeGroupManager) Nodes() (instance []cloudprovider.Instance, err error
 // NodeInfo is expected to have a fully populated Node object, with all of the labels,
 // capacity and allocatable information as well as all pods that are started on
 // the node by default, using manifest (most likely only kube-proxy). Implementation optional.
-func (n *NodeGroupManager) TemplateNodeInfo() (*schedulerframework.NodeInfo, error) {
-	// TODO: implement this
-	return nil, cloudprovider.ErrNotImplemented
+func (n *NodeGroupManager) TemplateNodeInfo() (nodeInfo *schedulerframework.NodeInfo, err error) {
+	offset := rand.Intn(100)
+	nodeName := n.getHostNameForOffset(offset) + "-simulation"
+	node := corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   nodeName,
+			Labels: map[string]string{},
+		},
+	}
+
+	capacity := make(map[corev1.ResourceName]resource.Quantity)
+
+	node.Spec.ProviderID = n.getProviderId(offset)
+	node.Status.Capacity = capacity
+	node.Status.Allocatable = capacity
+	node.Status.Conditions = cloudprovider.BuildReadyConditions()
+
+	node.Labels = map[string]string{
+		"kubernetes.io/arch":                    "amd64",
+		"kubernetes.io/hostname":                nodeName,
+		"kubernetes.io/os":                      "linux",
+		"node-role.kubernetes.io/control-plane": "false",
+		"node-role.kubernetes.io/master":        "false",
+		"node.kubernetes.io/instance-type":      "k3s",
+	}
+
+	nodeInfo = schedulerframework.NewNodeInfo(cloudprovider.BuildKubeProxy(nodeName))
+	nodeInfo.SetNode(&node)
+
+	return
 }
 
 // Exist checks if the node group really exists on the cloud provider side. Allows to tell the
