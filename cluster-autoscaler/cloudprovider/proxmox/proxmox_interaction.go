@@ -365,7 +365,7 @@ func (p *ProxmoxManager) getDetailsFromNode(node *apiv1.Node) (n *NodeGroupManag
 	}
 
 	// Not managed by us
-	if targetPool == "" && refCtrId == 0 && offset == 0 {
+	if targetPool == "" || refCtrId == 0 || offset == 0 {
 		return
 	}
 
